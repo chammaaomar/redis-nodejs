@@ -96,7 +96,19 @@ const findById = async (id) => {
 /* eslint-disable arrow-body-style */
 const findAll = async () => {
   // START CHALLENGE #1
-  return [];
+  const sites = [];
+  const client = redis.getClient();
+  const siteKeyPattern = keyGenerator.getSiteHashKey('*');
+  const siteKeys = await client.keysAsync(siteKeyPattern);
+  if (siteKeys == null) {
+    return [];
+  }
+  for (let key of siteKeys) { 
+    const site = await client.hgetallAsync(key);
+    const siteJS = remap(site); // redis doesn't allow nesting objects, so we unflatten it
+    sites.push(siteJS);
+  }
+  return sites;
   // END CHALLENGE #1
 };
 /* eslint-enable */
