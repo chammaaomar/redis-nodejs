@@ -74,7 +74,7 @@ const updateOptimized = async (meterReading) => {
   // of 24 hours in expiration.
   transaction.expire(key, weekSeconds);
   
-  return await transaction.execAsync()
+  return transaction.execAsync()
   // END Challenge #3
 };
 /* eslint-enable */
