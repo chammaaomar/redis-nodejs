@@ -54,12 +54,19 @@ const extractMeasurementMinute = (measurementMinute) => {
  */
 const insertMetric = async (siteId, metricValue, metricName, timestamp) => {
   const client = redis.getClient();
-
   const metricKey = keyGenerator.getDayMetricKey(siteId, metricName, timestamp);
+  const keyTTL = parseInt(await client.ttlAsync(metricKey), 10);
+  if (keyTTL == -2) { // key does not exist; set its expiry to 30 days
+    await client.expireAsync(metricKey, metricExpirationSeconds);
+  }
   const minuteOfDay = timeUtils.getMinuteOfDay(timestamp);
+  const uniqueMetricValue = formatMeasurementMinute(metricValue, minuteOfDay);
 
   // START Challenge #2
+  const insertPromise = await client.zaddAsync(metricKey, minuteOfDay, uniqueMetricValue);
   // END Challenge #2
+
+  return insertPromise;
 };
 /* eslint-enable */
 
