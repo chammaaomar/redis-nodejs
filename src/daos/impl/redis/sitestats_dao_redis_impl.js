@@ -8,7 +8,7 @@ const weekSeconds = 60 * 60 * 24 * 7;
 /**
  * Takes an object containing keys and values from a Redis hash, and
  * performs the required type conversions from string -> number on some
- * of the keysto transform it into a site stat domain object.
+ * of the keys to transform it into a site stat domain object.
  * @param {Object} siteStatsHash - Object whose key/value pairs represent values from a Redis hash.
  * @private
  */
@@ -56,9 +56,25 @@ const updateOptimized = async (meterReading) => {
   const key = keyGenerator.getSiteStatsKey(meterReading.siteId, meterReading.dateTime);
 
   // Load script if needed, uses cached SHA if already loaded.
-  await compareAndUpdateScript.load();
-
+  const shaScript = await compareAndUpdateScript.load();
   // START Challenge #3
+  const transaction = client.multi();
+  const capacity = meterReading.whGenerated - meterReading.whUsed;
+  const maxWhParams = compareAndUpdateScript.updateIfGreater(key, 'maxWhGenerated', meterReading.whGenerated);
+  const maxCapacityParams = compareAndUpdateScript.updateIfGreater(key, 'maxCapacity', capacity); 
+  const minWhParams = compareAndUpdateScript.updateIfLess(key, 'minWhGenerated', meterReading.whGenerated); 
+  // add commands to queue
+  transaction.evalsha(...maxWhParams);
+  transaction.evalsha(...maxCapacityParams);
+  transaction.evalsha(...minWhParams);
+  transaction.hincrby(key, 'meterReadingCount', 1);
+  transaction.hset(key, 'lastReportingTime', timeUtils.getCurrentTimestamp());
+  // we can ensure only the first meter reading sets the expire, but the last meter
+  // reading that will be added to this hash is in the same day, so it's just a difference
+  // of 24 hours in expiration.
+  transaction.expire(key, weekSeconds);
+  
+  return await transaction.execAsync()
   // END Challenge #3
 };
 /* eslint-enable */
@@ -106,5 +122,5 @@ const updateBasic = async (meterReading) => {
 
 module.exports = {
   findById,
-  update: updateBasic, // updateOptimized
+  update: updateOptimized
 };
