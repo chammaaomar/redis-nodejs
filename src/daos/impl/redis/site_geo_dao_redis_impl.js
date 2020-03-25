@@ -1,5 +1,5 @@
-const redis = require('./redis_client');
-const keyGenerator = require('./redis_key_generator');
+const redis = require("./redis_client");
+const keyGenerator = require("./redis_key_generator");
 
 // Minimum amount of capacity that a site should have to be
 // considered as having 'excess capacity'.
@@ -16,7 +16,7 @@ const capacityThreshold = 0.2;
  *  to the shape of a site domain object.
  * @private
  */
-const remap = (siteHash) => {
+const remap = siteHash => {
   const remappedSiteHash = { ...siteHash };
 
   remappedSiteHash.id = parseInt(siteHash.id, 10);
@@ -24,10 +24,10 @@ const remap = (siteHash) => {
   remappedSiteHash.capacity = parseFloat(siteHash.capacity, 10);
 
   // coordinate is optional.
-  if (siteHash.hasOwnProperty('lat') && siteHash.hasOwnProperty('lng')) {
+  if (siteHash.hasOwnProperty("lat") && siteHash.hasOwnProperty("lng")) {
     remappedSiteHash.coordinate = {
       lat: parseFloat(siteHash.lat),
-      lng: parseFloat(siteHash.lng),
+      lng: parseFloat(siteHash.lng)
     };
 
     // Remove original fields from resulting object.
@@ -47,10 +47,10 @@ const remap = (siteHash) => {
  *  inner objects, suitable for storage in a Redis hash.
  * @private
  */
-const flatten = (site) => {
+const flatten = site => {
   const flattenedSite = { ...site };
 
-  if (flattenedSite.hasOwnProperty('coordinate')) {
+  if (flattenedSite.hasOwnProperty("coordinate")) {
     flattenedSite.lat = flattenedSite.coordinate.lat;
     flattenedSite.lng = flattenedSite.coordinate.lng;
     delete flattenedSite.coordinate;
@@ -66,7 +66,7 @@ const flatten = (site) => {
  * @returns {Promise} - a Promise, resolving to the string value
  *   for the key of the site Redis.
  */
-const insert = async (site) => {
+const insert = async site => {
   const client = redis.getClient();
 
   const siteHashKey = keyGenerator.getSiteHashKey(site.id);
@@ -74,15 +74,15 @@ const insert = async (site) => {
   await client.hmsetAsync(siteHashKey, flatten(site));
 
   // Co-ordinates are required when using this version of the DAO.
-  if (!site.hasOwnProperty('coordinate')) {
-    throw new Error('Coordinate required for site geo insert!');
+  if (!site.hasOwnProperty("coordinate")) {
+    throw new Error("Coordinate required for site geo insert!");
   }
 
   await client.geoaddAsync(
     keyGenerator.getSiteGeoKey(),
     site.coordinate.lng,
     site.coordinate.lat,
-    site.id,
+    site.id
   );
 
   return siteHashKey;
@@ -94,13 +94,13 @@ const insert = async (site) => {
  * @param {number} id - a site ID.
  * @returns {Promise} - a Promise, resolving to a site object.
  */
-const findById = async (id) => {
+const findById = async id => {
   const client = redis.getClient();
   const siteKey = keyGenerator.getSiteHashKey(id);
 
   const siteHash = await client.hgetallAsync(siteKey);
 
-  return (siteHash === null ? siteHash : remap(siteHash));
+  return siteHash === null ? siteHash : remap(siteHash);
 };
 
 /**
@@ -110,15 +110,19 @@ const findById = async (id) => {
  */
 const findAll = async () => {
   const client = redis.getClient();
+  const pipeline = client.batch();
 
   const siteIds = await client.zrangeAsync(keyGenerator.getSiteGeoKey(), 0, -1);
   const sites = [];
 
   for (const siteId of siteIds) {
     const siteKey = keyGenerator.getSiteHashKey(siteId);
-
+    pipeline.hgetall(siteKey);
+  }
+  const result = await pipeline.execAsync();
+  for (let i = 0; i < siteIds.length; i += 1) {
     /* eslint-disable no-await-in-loop */
-    const siteHash = await client.hgetallAsync(siteKey);
+    const siteHash = result[i];
     /* eslint-enable */
 
     if (siteHash) {
@@ -127,7 +131,6 @@ const findAll = async () => {
       sites.push(remap(siteHash));
     }
   }
-
   return sites;
 };
 
@@ -148,7 +151,7 @@ const findByGeo = async (lat, lng, radius, radiusUnit) => {
     lng,
     lat,
     radius,
-    radiusUnit.toLowerCase(),
+    radiusUnit.toLowerCase()
   );
 
   const sites = [];
@@ -180,7 +183,6 @@ const findByGeo = async (lat, lng, radius, radiusUnit) => {
 const findByGeoWithExcessCapacity = async (lat, lng, radius, radiusUnit) => {
   /* eslint-disable no-unreachable */
   // Challenge #5, remove the next line...
-  return [];
 
   const client = redis.getClient();
 
@@ -190,14 +192,14 @@ const findByGeoWithExcessCapacity = async (lat, lng, radius, radiusUnit) => {
   // Get sites within the radius and store them in a temporary sorted set.
   const sitesInRadiusSortedSetKey = keyGenerator.getTemporaryKey();
 
-  setOperationsPipeline.georadiusAsync(
+  setOperationsPipeline.georadius(
     keyGenerator.getSiteGeoKey(),
     lng,
     lat,
     radius,
     radiusUnit.toLowerCase(),
-    'STORE',
-    sitesInRadiusSortedSetKey,
+    "STORE",
+    sitesInRadiusSortedSetKey
   );
 
   // Create a key for a temporary sorted set containing sites that fell
@@ -205,6 +207,16 @@ const findByGeoWithExcessCapacity = async (lat, lng, radius, radiusUnit) => {
   const sitesInRadiusCapacitySortedSetKey = keyGenerator.getTemporaryKey();
 
   // START Challenge #5
+  const capacityRankingKey = keyGenerator.getCapacityRankingKey();
+  setOperationsPipeline.zinterstore(
+    sitesInRadiusCapacitySortedSetKey,
+    2,
+    sitesInRadiusSortedSetKey,
+    capacityRankingKey,
+    "WEIGHTS",
+    0,
+    1
+  );
   // END Challenge #5
 
   // Expire the temporary sorted sets after 30 seconds, so that we
@@ -221,7 +233,7 @@ const findByGeoWithExcessCapacity = async (lat, lng, radius, radiusUnit) => {
   const siteIds = await client.zrangebyscoreAsync(
     sitesInRadiusCapacitySortedSetKey,
     capacityThreshold,
-    '+inf',
+    "+inf"
   );
 
   // Populate array with site details, use pipeline for efficiency.
@@ -256,5 +268,5 @@ module.exports = {
   findById,
   findAll,
   findByGeo,
-  findByGeoWithExcessCapacity,
+  findByGeoWithExcessCapacity
 };

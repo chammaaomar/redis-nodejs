@@ -1,5 +1,5 @@
-const redis = require('./redis_client');
-const keyGenerator = require('./redis_key_generator');
+const redis = require("./redis_client");
+const keyGenerator = require("./redis_key_generator");
 
 /**
  * Transform an array of siteId, capacity tuples to an array
@@ -8,13 +8,13 @@ const keyGenerator = require('./redis_key_generator');
  * @returns {Object[]} - array of Objects
  * @private
  */
-const remap = (arr) => {
+const remap = arr => {
   const remapped = [];
 
   for (let n = 0; n < arr.length; n += 2) {
     remapped.push({
       siteId: parseInt(arr[n], 10),
-      capacity: parseFloat(arr[n + 1]),
+      capacity: parseFloat(arr[n + 1])
     });
   }
 
@@ -26,14 +26,14 @@ const remap = (arr) => {
  * @param {Object} meterReading - A meter reading.
  * @returns {Promise} - Promise indicating the operation has completed.
  */
-const update = async (meterReading) => {
+const update = async meterReading => {
   const client = redis.getClient();
   const currentCapacity = meterReading.whGenerated - meterReading.whUsed;
 
   await client.zaddAsync(
     keyGenerator.getCapacityRankingKey(),
     currentCapacity,
-    meterReading.siteId,
+    meterReading.siteId
   );
 };
 
@@ -42,19 +42,19 @@ const update = async (meterReading) => {
  * @param {number} limit - Maximum number of entries to be returned.
  * @returns {Promise} - Promise containing capacity report.
  */
-const getReport = async (limit) => {
+const getReport = async limit => {
   const client = redis.getClient();
   const capacityRankingKey = keyGenerator.getCapacityRankingKey();
   const pipeline = client.batch();
 
-  pipeline.zrange(capacityRankingKey, 0, limit - 1, 'WITHSCORES');
-  pipeline.zrevrange(capacityRankingKey, 0, limit - 1, 'WITHSCORES');
+  pipeline.zrange(capacityRankingKey, 0, limit - 1, "WITHSCORES");
+  pipeline.zrevrange(capacityRankingKey, 0, limit - 1, "WITHSCORES");
 
   const results = await pipeline.execAsync();
 
   return {
     lowestCapacity: remap(results[0]),
-    highestCapacity: remap(results[1]),
+    highestCapacity: remap(results[1])
   };
 };
 
@@ -63,13 +63,13 @@ const getReport = async (limit) => {
  * @param {number} siteId - A solar site ID.
  * @returns {Promise} - Promise containing rank for siteId as a number.
  */
-const getRank = async (siteId) => {
+const getRank = async siteId => {
   // START Challenge #4
   const client = redis.getClient();
 
-  const result = await client.zrankAsync(
+  const result = await client.zrevrankAsync(
     keyGenerator.getCapacityRankingKey(),
-    `${siteId}`,
+    `${siteId}`
   );
 
   return result;
@@ -79,5 +79,5 @@ const getRank = async (siteId) => {
 module.exports = {
   update,
   getReport,
-  getRank,
+  getRank
 };
