@@ -2,14 +2,32 @@
 const redis = require('./redis_client');
 const keyGenerator = require('./redis_key_generator');
 const timeUtils = require('../../../utils/time_utils');
-
+const MAX = 10000;
 
 // Challenge 7
 const hitSlidingWindow = async (name, opts) => {
   const client = redis.getClient();
-
   // START Challenge #7
-  return -2;
+  const key = keyGenerator.getRateLimiterKey(name, opts.maxHits);
+  const transaction = client.multi();
+  const requestTime = timeUtils.getCurrentTimestampMillis();
+  const randVal = Math.random()*opts.maxHits*MAX;
+  
+  // implement sliding window rate limiter as sorted set with
+  // score == time of request
+  // queue up commands to implement in a transaction
+  transaction.zadd(key, requestTime, randVal);
+  transaction.zremrangebyscore(key, -Infinity, requestTime - opts.interval*60*1000);
+  transaction.zcard(key);
+  
+  const results = await transaction.execAsync();
+  const numHits = parseInt(results[2], 10);
+  const capacity = opts.maxHits - numHits;
+  if (capacity < 0){
+    return -1;
+  } else {
+    return capacity; 
+  }
   // END Challenge #7
 };
 
